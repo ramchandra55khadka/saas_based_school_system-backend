@@ -38,3 +38,14 @@ class IsTeacherOnly(BasePermission):
 class IsStudentOnly(BasePermission):
     def has_permission(self, request, view):
         return bool(request.user and request.user.is_authenticated and request.user.role == "student")
+
+
+
+class IsAdminOrSuperAdmin(BasePermission):   #for susbcription views to view subscriptions plan
+    """Allows access only to admin and super-admin users."""
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and request.user.role in ["admin", "super-admin"]
+        )

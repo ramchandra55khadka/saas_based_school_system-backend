@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import Plan, Subscription
+from accounts.models import Organization
 
 
 class PlanSerializer(serializers.ModelSerializer):
@@ -14,7 +15,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     plan_id = serializers.PrimaryKeyRelatedField(
         queryset=Plan.objects.all(), source="plan", write_only=True
     )
-
+    organization = serializers.PrimaryKeyRelatedField(
+        queryset=Organization.objects.all(), required=True
+    )
     days_remaining = serializers.ReadOnlyField()
 
     class Meta:
@@ -30,4 +33,4 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "auto_renew",
             "days_remaining",
         ]
-        read_only_fields = ["id","organization", "start_date", "end_date", "is_active", "days_remaining"]
+        read_only_fields = ["id", "start_date", "end_date", "is_active", "days_remaining"]

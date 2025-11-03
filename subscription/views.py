@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from django.utils import timezone
 from .models import Plan, Subscription
 from .serializers import PlanSerializer, SubscriptionSerializer
-from accounts.permissions import IsSuperAdmin, IsAdminOnly
+from accounts.permissions import IsSuperAdmin, IsAdminOnly, IsAdminOrSuperAdmin
 
 
 # -------------------------------
@@ -31,13 +31,13 @@ class SubscriptionViewSet(viewsets.ModelViewSet):
     SuperAdmin can assign or modify organization subscriptions.
     Admins can only view their organization’s subscription.
     """
-    queryset = Subscription.objects.select_related("organization", "plan").all()
+    queryset = Subscription.objects.select_related("organization", "plan").all()  #always inclue all() . if not include it will retirve only one
     serializer_class = SubscriptionSerializer
 
     def get_permissions(self):
         if self.action in ["create", "update", "partial_update", "destroy"]:
             return [IsSuperAdmin()]
-        return [IsAdminOnly()]
+        return [IsAdminOrSuperAdmin()]
 
     def get_queryset(self):
         user = self.request.user
