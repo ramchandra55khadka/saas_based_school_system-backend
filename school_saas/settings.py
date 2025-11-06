@@ -59,7 +59,7 @@ MIDDLEWARE = [
     'accounts.middleware.JWTCookieToHeaderMiddleware',
     'accounts.middleware.JWTAuthenticationMiddleware', #auth+tetant id
     # Tenant resolver
-    "tenants.middleware.TenantMiddleware",  #here tenants is app and CurrentTenantMiddleware is function under tenant/middleware.py
+    "tenants.middleware.TenantMiddleware",  #here tenants is app and TenantMiddleware is function under tenant/middleware.py
 ]
 
 REST_FRAMEWORK = {
