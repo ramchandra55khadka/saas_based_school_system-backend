@@ -1,44 +1,58 @@
-from rest_framework import generics, permissions
+
+# Uses TenantViewSet → automatically filters by tenant and assigns it at creation.
+
+
+# Keeps role-based creation logic clear (IsStudentOnlyPost, IsTeacherOnlyPost).
+
+
+# Tenant isolation happens automatically — no organization field or cross-tenant risk.
+
+
+from rest_framework import permissions
+from core.mixins import TenantViewSet  # ✅ Automatically filters by tenant & assigns request.tenant ##vvimp
 from .models import StudentPost, TeacherAnnouncement
 from .serializers import StudentPostSerializer, TeacherAnnouncementSerializer
-from .permissions import IsStudentOnlyPost,IsTeacherOnlyPost
+from .permissions import IsStudentOnlyPost, IsTeacherOnlyPost
 
 
-# 🧑‍🎓 Student Post View
-class StudentPostListCreateView(generics.ListCreateAPIView):
+# 🧑‍🎓 Student Post ViewSet
+class StudentPostViewSet(TenantViewSet):
+    """
+    Tenant-aware ViewSet for student posts.
+    - Only students can create posts.
+    - All users in the tenant (teachers, admins, students) can view posts.
+    """
+    queryset = StudentPost.objects.all()
     serializer_class = StudentPostSerializer
     permission_classes = [permissions.IsAuthenticated, IsStudentOnlyPost]
 
-    def get_queryset(self):
-        # Everyone (teacher, student, admin) can see student posts from their org
-        user = self.request.user
-        return StudentPost.objects.filter(organization=user.organization)
-
     def perform_create(self, serializer):
         user = self.request.user
-        serializer.save(organization=user.organization, student=user)
+        serializer.save(student=user)  # tenant auto-added by TenantViewSet
 
 
-# 👨‍🏫 Teacher Announcement View
-class TeacherAnnouncementListCreateView(generics.ListCreateAPIView):
+# 👨‍🏫 Teacher Announcement ViewSet
+class TeacherAnnouncementViewSet(TenantViewSet):
+    """
+    Tenant-aware ViewSet for teacher announcements.
+    - Only teachers can create announcements.
+    - Students, teachers, and admins in the same tenant can view them.
+    """
+    queryset = TeacherAnnouncement.objects.all()
     serializer_class = TeacherAnnouncementSerializer
     permission_classes = [permissions.IsAuthenticated, IsTeacherOnlyPost]
 
     def get_queryset(self):
         user = self.request.user
+        qs = super().get_queryset()
 
         if user.role == "student":
-            # Students see all announcements in their org
-            return TeacherAnnouncement.objects.filter(organization=user.organization)
-
+            return qs  # students see all announcements in their tenant
         elif user.role == "teacher":
-            # Teachers see only their own announcements
-            return TeacherAnnouncement.objects.filter(organization=user.organization, teacher=user)
-
+            return qs.filter(teacher=user)
         else:
-            # Admins/HODs can read all announcements
-            return TeacherAnnouncement.objects.filter(organization=user.organization)
+            return qs  # admins/HODs can see all
 
     def perform_create(self, serializer):
         user = self.request.user
-        serializer.save(organization=user.organization, teacher=user)
+        serializer.save(teacher=user)  # tenant auto-added by TenantViewSet

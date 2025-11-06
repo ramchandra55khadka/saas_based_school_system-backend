@@ -1,0 +1,1 @@
+shared-schema, same-domain multi-tenant SaaS (like schoolsaas.com)

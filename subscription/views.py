@@ -1,9 +1,12 @@
-from rest_framework import generics, viewsets, status, permissions
-from rest_framework.response import Response
+# subscription/views.py
 from django.utils import timezone
+from rest_framework import status, permissions
+from rest_framework.response import Response
+from rest_framework import viewsets
 from .models import Plan, Subscription
 from .serializers import PlanSerializer, SubscriptionSerializer
-from accounts.permissions import IsSuperAdmin, IsAdminOnly, IsAdminOrSuperAdmin
+from core.permissions import IsSuperAdmin, IsAdminOrSuperAdmin
+from core.mixins import TenantViewSet
 
 
 # -------------------------------
@@ -12,49 +15,68 @@ from accounts.permissions import IsSuperAdmin, IsAdminOnly, IsAdminOrSuperAdmin
 class PlanViewSet(viewsets.ModelViewSet):
     """
     SuperAdmin can create, update, or delete subscription plans.
-    All users can view plans.
+    All authenticated users can view plans.
     """
     queryset = Plan.objects.all()
     serializer_class = PlanSerializer
 
     def get_permissions(self):
         if self.action in ["create", "update", "partial_update", "destroy"]:
-            return [IsSuperAdmin()]  # Only SuperAdmin can modify plans # we take from accounts.permissions
+            return [IsSuperAdmin()]
         return [permissions.IsAuthenticated()]
 
 
 # -------------------------------
 # 🏢 SUBSCRIPTION MANAGEMENT
 # -------------------------------
-class SubscriptionViewSet(viewsets.ModelViewSet):
+class SubscriptionViewSet(TenantViewSet):
     """
-    SuperAdmin can assign or modify organization subscriptions.
-    Admins can only view their organization’s subscription.
+    Handles tenant-specific subscriptions.
+    - SuperAdmin: full access
+    - Tenant admin: limited to their tenant
     """
-    queryset = Subscription.objects.select_related("organization", "plan").all()  #always inclue all() . if not include it will retirve only one
+    queryset = Subscription.objects.select_related("tenant", "plan").all()
     serializer_class = SubscriptionSerializer
-
-    def get_permissions(self):
-        if self.action in ["create", "update", "partial_update", "destroy"]:
-            return [IsSuperAdmin()]
-        return [IsAdminOrSuperAdmin()]
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.role == "super-admin":
-            return self.queryset
-        return self.queryset.filter(organization=user.organization)
+    permission_classes = [IsAdminOrSuperAdmin]
 
     def perform_create(self, serializer):
+        """
+        Automatically sets subscription period based on plan duration.
+        """
         plan = serializer.validated_data["plan"]
-        org = serializer.validated_data["organization"]
+        tenant = serializer.validated_data.get("tenant", self.get_tenant())
+
         start_date = timezone.now()
         end_date = start_date + timezone.timedelta(days=plan.duration_days)
+
         serializer.save(
-            organization=org,
+            tenant=tenant,
             plan=plan,
             start_date=start_date,
             end_date=end_date,
             is_active=True,
         )
 
+    def perform_update(self, serializer):
+        """
+        Auto-recalculate subscription end date on plan change or renewal.
+        """
+        instance = serializer.instance
+        plan = serializer.validated_data.get("plan", instance.plan)
+
+        if "plan" in serializer.validated_data:
+            instance.end_date = instance.start_date + timezone.timedelta(days=plan.duration_days)
+
+        serializer.save()
+
+
+# -------------------------------
+# ✅ PUBLIC READ-ONLY ACTIVE PLAN LIST
+# -------------------------------
+class ActivePlanViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Public endpoint for listing all available (active) plans.
+    """
+    queryset = Plan.objects.all().order_by("price")
+    serializer_class = PlanSerializer
+    permission_classes = [permissions.IsAuthenticated]

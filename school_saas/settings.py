@@ -39,6 +39,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'tenants',
+    'core',
     'accounts',
     'subscription',
     'academics',
@@ -54,9 +56,10 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     # Custom: copy JWT from cookie to Authorization header (so DRF SimpleJWT works)
-    "accounts.middleware.JwtCookieMiddleware",
+    'accounts.middleware.JWTCookieToHeaderMiddleware',
+    'accounts.middleware.JWTAuthenticationMiddleware', #auth+tetant id
     # Tenant resolver
-    "accounts.middleware.CurrentOrgMiddleware",
+    "tenants.middleware.TenantMiddleware",  #here tenants is app and CurrentTenantMiddleware is function under tenant/middleware.py
 ]
 
 REST_FRAMEWORK = {

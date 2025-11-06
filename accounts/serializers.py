@@ -1,14 +1,19 @@
 from rest_framework import serializers
-from .models import User, Organization
+from django.contrib.auth import get_user_model
+from tenants.models import Tenant
+from .models import User
+from accounts.models import TenantMembership, RoleChoices
+
+
 
 # --------------------------------
-# Organization Serializer
+# Tenant Serializer (optional for API response)
 # --------------------------------
-class OrganizationSerializer(serializers.ModelSerializer):
+class TenantSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Organization
-        fields = ["id", "org_name", "org_reg_no", "created_at"]
-        read_only_fields = ["id", "created_at"]
+        model = Tenant
+        fields = ["tenant_id", "tenant_name", "org_code", "created_at"]
+        read_only_fields = ["tenant_id", "created_at"]
 
 
 # --------------------------------
@@ -16,13 +21,14 @@ class OrganizationSerializer(serializers.ModelSerializer):
 # --------------------------------
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True)
-    ROLE_CHOICES = ["super-admin", "admin", "hod", "teacher", "student"]
-    role = serializers.ChoiceField(choices=ROLE_CHOICES)
+    role = serializers.ChoiceField(choices=[r.value for r in RoleChoices])
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "first_name", "last_name",
-                  "role", "organization", "date_joined", "password"]
+        fields = [
+            "id", "username", "email", "first_name", "last_name",
+            "role", "date_joined", "password"
+        ]
         read_only_fields = ["id", "date_joined"]
 
     def create(self, validated_data):
@@ -43,30 +49,37 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 # --------------------------------
-# Signup Serializer (Org + Initial Admin)
+# Signup Serializer (Super-admin creates tenant + initial admin)
 # --------------------------------
 class SignupSerializer(serializers.Serializer):
-    org_name = serializers.CharField()
-    org_reg_no = serializers.CharField()
+    tenant_name = serializers.CharField()
+    org_code = serializers.CharField()
     admin_username = serializers.CharField()
     admin_email = serializers.EmailField()
     admin_password = serializers.CharField(write_only=True)
 
     def create(self, validated_data):
-        # Create Organization
-        org = Organization.objects.create(
-            org_name=validated_data["org_name"],
-            org_reg_no=validated_data["org_reg_no"]
+        # 1️⃣ Create Tenant
+        tenant = Tenant.objects.create(
+            tenant_name=validated_data["tenant_name"],
+            org_code=validated_data["org_code"]
         )
 
-        # Create initial admin
-        user = User.objects.create(
+        # 2️⃣ Create initial admin user
+        admin_user = User.objects.create(
             username=validated_data["admin_username"],
             email=validated_data["admin_email"],
-            role="admin",
-            organization=org
+            role=RoleChoices.ADMIN
         )
-        user.set_password(validated_data["admin_password"])
-        user.save()
+        admin_user.set_password(validated_data["admin_password"])
+        admin_user.save()
 
-        return {"user": user, "org": org}
+        # 3️⃣ Link user to tenant via TenantMembership
+        TenantMembership.objects.create(
+            user=admin_user,
+            tenant=tenant,
+            role=RoleChoices.ADMIN,
+            is_active=True
+        )
+
+        return {"tenant": tenant, "admin_user": admin_user}

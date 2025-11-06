@@ -7,8 +7,8 @@ class StudentPostSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StudentPost
-        fields = ["id", "organization", "student", "student_name", "title", "content", "created_at"]
-        read_only_fields = ["organization", "student", "created_at"]
+        fields = ["id", "tenant", "student", "student_name", "title", "content", "created_at"]
+        read_only_fields = ["tenant", "student", "created_at"]
 
 
 class TeacherAnnouncementSerializer(serializers.ModelSerializer):
@@ -16,5 +16,5 @@ class TeacherAnnouncementSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TeacherAnnouncement
-        fields = ["id", "organization", "teacher", "teacher_name", "title", "content", "created_at"]
-        read_only_fields = ["organization", "teacher", "created_at"]
+        fields = ["id", "tenant", "teacher", "teacher_name", "title", "content", "created_at"]
+        read_only_fields = ["tenant", "teacher", "created_at"]

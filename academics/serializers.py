@@ -6,14 +6,14 @@ class CourseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Course
         fields = "__all__"
-        read_only_fields = ["created_by","created_at","organization"]
+        read_only_fields = ["created_by","created_at","tetant"]
 
 
 class SubjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Subject
         fields = "__all__"
-        read_only_fields = ["organization"]
+        read_only_fields = ["tetant"]
 
 
 
@@ -21,4 +21,4 @@ class StudentRecordSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentRecord
         fields = "__all__"
-        read_only_fields = ["created_at","organization"]
+        read_only_fields = ["created_at","tetant"]

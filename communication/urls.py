@@ -1,7 +1,13 @@
-from django.urls import path
-from .views import StudentPostListCreateView, TeacherAnnouncementListCreateView
+# communications/urls.py
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import StudentPostViewSet, TeacherAnnouncementViewSet
+
+# DRF router automatically creates routes for ViewSets
+router = DefaultRouter()
+router.register(r'student-posts', StudentPostViewSet, basename='student-posts')
+router.register(r'teacher-announcements', TeacherAnnouncementViewSet, basename='teacher-announcements')
 
 urlpatterns = [
-    path("student-posts/", StudentPostListCreateView.as_view(), name="student-posts"),
-    path("teacher-announcements/", TeacherAnnouncementListCreateView.as_view(), name="teacher-announcements"),
+    path('', include(router.urls)),
 ]
