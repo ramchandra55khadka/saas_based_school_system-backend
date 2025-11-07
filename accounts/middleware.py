@@ -1,67 +1,29 @@
-# from django.conf import settings
-# from django.utils.deprecation import MiddlewareMixin
-# from .models import Organization
-
-
-# class JwtCookieMiddleware(MiddlewareMixin):
-#     """
-#     Copies HttpOnly JWT cookies into Authorization header.
-#     """
-
-#     def process_request(self, request):
-#         access_cookie = request.COOKIES.get(getattr(settings, "JWT_ACCESS_COOKIE", "access"))
-#         if access_cookie and "HTTP_AUTHORIZATION" not in request.META:
-#             request.META["HTTP_AUTHORIZATION"] = f"Bearer {access_cookie}"
-
-
-
-
-
 # accounts/middleware.py
-import jwt
 from django.conf import settings
-from django.utils.deprecation import MiddlewareMixin
-from django.contrib.auth import get_user_model
-from rest_framework.exceptions import AuthenticationFailed
-
-User = get_user_model()
+from loguru import logger
 
 
-class JWTCookieToHeaderMiddleware(MiddlewareMixin):
+class CustomJWTMiddleware:
     """
-    Moves JWT from HttpOnly cookie → Authorization header.
-    Enables DRF JWTAuthentication to read token.
+    Copies JWT from HttpOnly cookie to Authorization header.
+    Enables DRF JWTAuthentication to read the token.
     """
-    def process_request(self, request):
-        cookie_name = getattr(settings, "JWT_ACCESS_COOKIE", "access_token")
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        cookie_name = getattr(settings, "JWT_ACCESS_COOKIE", "access")
         token = request.COOKIES.get(cookie_name)
+
+        logger.debug(f"Checking cookie: {cookie_name}")
+        if token:
+            logger.debug(f"JWT found in cookie: {token[:15]}...")
+        else:
+            logger.debug("No JWT in cookies")
+
+        # Only set header if not already present
         if token and "HTTP_AUTHORIZATION" not in request.META:
             request.META["HTTP_AUTHORIZATION"] = f"Bearer {token}"
+            logger.debug("Copied JWT to Authorization header")
 
-
-class JWTAuthenticationMiddleware(MiddlewareMixin):
-    """
-    Authenticates user from JWT (header or cookie) and injects active_tenant_id.
-    Works with HttpOnly cookies + DRF.
-    """
-    def process_request(self, request):
-        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
-        if not auth_header.startswith("Bearer "):
-            request.user = None
-            return
-
-        token = auth_header.split(" ", 1)[1]
-        try:
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
-        except jwt.ExpiredSignatureError:
-            raise AuthenticationFailed("Token expired")
-        except jwt.InvalidTokenError:
-            raise AuthenticationFailed("Invalid token")
-
-        try:
-            request.user = User.objects.only("id").get(id=payload["user_id"])
-        except User.DoesNotExist:
-            raise AuthenticationFailed("User not found")
-
-        # Forward tenant claim
-        request.active_tenant_id = payload.get("active_tenant_id")
+        return self.get_response(request)

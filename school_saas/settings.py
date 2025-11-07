@@ -53,13 +53,12 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Must come BEFORE your custom middleware
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Your custom JWT +(AFTER auth)
     # Custom: copy JWT from cookie to Authorization header (so DRF SimpleJWT works)
-    'accounts.middleware.JWTCookieToHeaderMiddleware',
-    'accounts.middleware.JWTAuthenticationMiddleware', #auth+tetant id
-    # Tenant resolver
-    "tenants.middleware.TenantMiddleware",  #here tenants is app and TenantMiddleware is function under tenant/middleware.py
+    'accounts.middleware.CustomJWTMiddleware',
 ]
 
 REST_FRAMEWORK = {
@@ -148,16 +147,13 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 from datetime import timedelta
+# cookie names
+JWT_ACCESS_COOKIE = "access"
+JWT_REFRESH_COOKIE = "refresh"
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
-    "ROTATE_REFRESH_TOKENS": False,
-    "BLACKLIST_AFTER_ROTATION": False,
-    "ALGORITHM": "HS256",
-    "SIGNING_KEY": SECRET_KEY,
+
 }
 
-# cookie names
-JWT_ACCESS_COOKIE = "access"
-JWT_REFRESH_COOKIE = "refresh"

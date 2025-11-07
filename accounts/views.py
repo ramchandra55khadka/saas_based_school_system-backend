@@ -1,247 +1,317 @@
 
+# # accounts/views.py
 # from django.conf import settings
-# from rest_framework import generics, status,viewsets
+# from rest_framework.views import APIView
+# from rest_framework import generics, viewsets, status, serializers
 # from rest_framework.response import Response
-# from rest_framework.permissions import AllowAny, IsAuthenticated
-# from django.contrib.auth import get_user_model
+# from rest_framework.permissions import IsAuthenticated
 # from rest_framework_simplejwt.views import TokenObtainPairView
-# from .serializers import SignupSerializer, OrganizationSerializer, UserSerializer
-# from .permissions import IsSuperAdmin, IsAdminOrHod, IsAdminOrHodUserManagement
+# from rest_framework_simplejwt.tokens import RefreshToken
+
+# from .serializers import UserSerializer, SignupSerializer
+# from core.mixins import TenantRequiredMixin, TenantViewSet
+# from core.permissions import IsSuperAdmin, IsAdminOrHodUserManagement
+# from accounts.models import TenantMembership, RoleChoices
+# from django.contrib.auth import get_user_model
 
 # User = get_user_model()
 
 
-# # --------------------------------
-# # Super-admin: Create Organization + Initial Admin
-# # --------------------------------
-# class SuperAdminOrganizationCreateView(generics.CreateAPIView):
+# # -----------------------------
+# # Super-admin: Create Tenant + Initial Admin
+# # -----------------------------
+# class SuperAdminTenantCreateView(TenantRequiredMixin, generics.CreateAPIView):
+#     """
+#     Super-admin can create a new tenant along with its initial admin user.
+#     """
 #     serializer_class = SignupSerializer
 #     permission_classes = [IsAuthenticated, IsSuperAdmin]
 
 #     def post(self, request, *args, **kwargs):
-#         org_data = request.data.get("organization")
-#         admin_data = request.data.get("admin_user")
-
-#         # Create Organization
-#         org_serializer = OrganizationSerializer(data=org_data)
-#         org_serializer.is_valid(raise_exception=True)
-#         org = org_serializer.save()
-
-#         # Create initial admin
-#         admin_data["organization"] = org.id
-#         admin_data["role"] = "admin"
-#         user_serializer = UserSerializer(data=admin_data)
-#         user_serializer.is_valid(raise_exception=True)
-#         user_serializer.save()
-
+#         serializer = self.get_serializer(data=request.data)
+#         serializer.is_valid(raise_exception=True)
+#         result = serializer.save()
 #         return Response({
-#             "message": "Organization and initial admin created successfully",
-#             "organization": org_serializer.data,
-#             "admin_user": user_serializer.data
+#             "message": "Tenant and initial admin created successfully",
+#             "tenant": {
+#                 "tenant_id": result["tenant"].tenant_id,
+#                 "tenant_name": result["tenant"].tenant_name,
+#                 "org_code": result["tenant"].org_code,
+#             },
+#             "admin_user": {
+#                 "id": result["admin_user"].id,
+#                 "username": result["admin_user"].username,
+#                 "email": result["admin_user"].email,
+#                 "role": result["admin_user"].role,
+#             }
 #         }, status=status.HTTP_201_CREATED)
 
 
-# class UserManagementViewSet(viewsets.ModelViewSet):
+# # -----------------------------
+# # User Management ViewSet
+# # -----------------------------
+# class UserManagementViewSet(TenantViewSet):
 #     """
-#     Admin/HOD can manage users based on role.
+#     Tenant-scoped user management.
+#     - Admin: manage all users.
+#     - HOD: manage teachers and students.
+#     Clean JSON responses with tenant info included.
 #     """
-#     queryset = User.objects.all()
 #     serializer_class = UserSerializer
 #     permission_classes = [IsAuthenticated, IsAdminOrHodUserManagement]
 
 #     def get_queryset(self):
 #         user = self.request.user
-#         if user.role == "admin":
-#             return User.objects.filter(organization=user.organization)
-#         elif user.role == "hod":
-#             return User.objects.filter(organization=user.organization, role__in=["teacher", "student"])
-#         else:
-#             return User.objects.none()  # no access
-        
-        
+#         tenant = getattr(self.request, "tenant", None)
+#         qs = super().get_queryset() if hasattr(super(), "get_queryset") else User.objects.all()
 
-#     def perform_create(self, serializer):
-#         creator = self.request.user
+#         if not tenant:
+#             return User.objects.none()
+
+#         qs = qs.filter(tenantmembership__tenant=tenant)
+
+#         if user.role == RoleChoices.ADMIN:
+#             return qs
+#         elif user.role == RoleChoices.HOD:
+#             return qs.filter(role__in=[RoleChoices.TEACHER, RoleChoices.STUDENT])
+#         return qs.none()
+
+#     def create(self, request, *args, **kwargs):
+#         tenant = getattr(request, "tenant", None)
+#         if not tenant:
+#             return Response(
+#                 {"message": "Tenant context missing. Make sure you are logged in with a valid tenant token."},
+#                 status=status.HTTP_400_BAD_REQUEST
+#             )
+
+#         serializer = self.get_serializer(data=request.data)
+#         serializer.is_valid(raise_exception=True)
+#         creator = request.user
 #         role = serializer.validated_data.get("role")
 
-#         # Role validation
-#         if creator.role == "admin":
-#             allowed_roles = ["hod", "teacher", "student"]
-#         elif creator.role == "hod":
-#             allowed_roles = ["teacher", "student"]
-#         else:
-#             allowed_roles = []
+#         # Role-based restrictions
+#         allowed = {
+#             RoleChoices.ADMIN: [RoleChoices.HOD, RoleChoices.TEACHER, RoleChoices.STUDENT],
+#             RoleChoices.HOD: [RoleChoices.TEACHER, RoleChoices.STUDENT],
+#         }.get(creator.role, [])
 
-#         if role not in allowed_roles:
-#             raise PermissionError(f"{creator.role} cannot create a user with role '{role}'")
+#         if role not in allowed:
+#             return Response(
+#                 {"message": f"{creator.role} cannot create user with role '{role}'"},
+#                 status=status.HTTP_403_FORBIDDEN
+#             )
 
-#         serializer.save(organization=creator.organization)
+#         user = serializer.save()
+#         TenantMembership.objects.create(
+#             user=user,
+#             tenant=tenant,
+#             role=role,
+#             is_active=True
+#         )
 
-# # --------------------------------
-# # JWT Login with HttpOnly Cookies
-# # --------------------------------
+#         return Response(
+#             {
+#                 "message": "User created successfully.",
+#                 "tenant": {
+#                     "tenant_id": str(tenant.tenant_id),
+#                     "tenant_name": tenant.tenant_name,
+#                 },
+#                 "user": {
+#                     "id": user.id,
+#                     "username": user.username,
+#                     "email": user.email,
+#                     "role": user.role,
+#                 },
+#             },
+#             status=status.HTTP_201_CREATED,
+#         )
+
+
+# # -----------------------------
+# # JWT Login + HttpOnly Cookies
+# # -----------------------------
 # class CookieTokenObtainPairView(TokenObtainPairView):
+#     """
+#     Custom JWT login view for super-admin / tenant users.
+#     Sets access + refresh tokens in HttpOnly cookies and includes tenant claim.
+#     """
 #     def post(self, request, *args, **kwargs):
-#         response = super().post(request, *args, **kwargs)
-#         if response.status_code == 200:
-#             data = response.data
-#             access = data.get("access")
-#             refresh = data.get("refresh")
+#         serializer = self.get_serializer(data=request.data)
+#         serializer.is_valid(raise_exception=True)
+#         user = serializer.user  # ✅ Authenticated user
 
-#             resp = Response({"message": "Login successful","access_token":access,"refresh_token":refresh}, status=200)
-#             resp.set_cookie(settings.JWT_ACCESS_COOKIE, access, httponly=True, samesite="Lax")
-#             resp.set_cookie(settings.JWT_REFRESH_COOKIE, refresh, httponly=True, samesite="Lax")
-#             return resp
+#         # Generate tokens
+#         refresh = RefreshToken.for_user(user)
+#         access = refresh.access_token
+
+#         # Add tenant claim (skip for super-admin)
+#         if not getattr(user, "is_super_admin", False):
+#             membership = TenantMembership.objects.filter(
+#                 user=user, is_active=True
+#             ).select_related("tenant").first()
+#             if membership:
+#                 tenant_id = str(membership.tenant.tenant_id)
+#                 access["active_tenant_id"] = tenant_id
+#                 refresh["active_tenant_id"] = tenant_id
+
+#         # Build response
+#         resp = Response({
+#             "message": "Login successful",
+#             "access_token": str(access),
+#             "refresh_token": str(refresh),
+#         })
+
+#         # Set HttpOnly cookies
+#         resp.set_cookie(
+#             settings.JWT_ACCESS_COOKIE, str(access),
+#             httponly=True, samesite="Lax", secure=not settings.DEBUG
+#         )
+#         resp.set_cookie(
+#             settings.JWT_REFRESH_COOKIE, str(refresh),
+#             httponly=True, samesite="Lax", secure=not settings.DEBUG
+#         )
+
+#         return resp
+
+
+# # -----------------------------
+# # Logout
+# # -----------------------------
+# class LogoutView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def post(self, request, *args, **kwargs):
+#         response = Response({"message": "Logout successful"}, status=200)
+#         response.delete_cookie(settings.JWT_ACCESS_COOKIE, samesite="Lax")
+#         response.delete_cookie(settings.JWT_REFRESH_COOKIE, samesite="Lax")
 #         return response
-
 
 # accounts/views.py
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from rest_framework import generics, viewsets, status, serializers
 from rest_framework.views import APIView
-from rest_framework import generics, viewsets, status
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from .serializers import UserSerializer, SignupSerializer
-from core.permissions import (
-    IsSuperAdmin,
-    IsAdminOrHodUserManagement,
-)
+from core.mixins import TenantViewSet
+from core.permissions import IsSuperAdmin, IsAdminOrHodUserManagement
 from accounts.models import TenantMembership, RoleChoices
 
 User = get_user_model()
 
 
 # -----------------------------
-# Super-admin: Create Tenant + Initial Admin
+# Super Admin: Create Tenant + Initial Admin
 # -----------------------------
 class SuperAdminTenantCreateView(generics.CreateAPIView):
     """
-    Only super-admin can create new tenants along with initial admin.
+    Super admin creates a new tenant + initial admin.
+    Skipped by TenantRequiredMixin (in PUBLIC_PATHS).
     """
     serializer_class = SignupSerializer
     permission_classes = [IsAuthenticated, IsSuperAdmin]
-
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        result = serializer.save()
-        return Response({
-            "message": "Tenant and initial admin created successfully",
-            "tenant": {
-                "tenant_id": result["tenant"].tenant_id,
-                "tenant_name": result["tenant"].tenant_name,
-                "org_code": result["tenant"].org_code,
-            },
-            "admin_user": {
-                "id": result["admin_user"].id,
-                "username": result["admin_user"].username,
-                "email": result["admin_user"].email,
-                "role": result["admin_user"].role,
-            }
-        }, status=status.HTTP_201_CREATED)
 
 
 # -----------------------------
 # User Management ViewSet
 # -----------------------------
-class UserManagementViewSet(viewsets.ModelViewSet):
+class UserManagementViewSet(TenantViewSet):
     """
-    Admin/HOD can manage users within their tenant.
-    Admin: manage all users.
-    HOD: manage only teacher/student.
+    Tenant-scoped user management.
+    - TenantRequiredMixin → sets request.tenant
+    - TenantQuerysetMixin → filters by tenant
+    - TenantViewSet → auto-filters queryset
     """
-    queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated, IsAdminOrHodUserManagement]
 
     def get_queryset(self):
         """
-        Filter users to the current tenant only.
+        Filter users by role permissions.
+        Base queryset already filtered by tenant via TenantQuerysetMixin.
         """
-        tenant = getattr(self.request, "tenant", None)
         user = self.request.user
-        if not tenant:
-            return User.objects.none()
+        qs = super().get_queryset()
 
         if user.role == RoleChoices.ADMIN:
-            return User.objects.filter(
-                memberships__tenant=tenant, memberships__is_active=True
-            )
+            return qs
         elif user.role == RoleChoices.HOD:
-            return User.objects.filter(
-                memberships__tenant=tenant,
-                memberships__is_active=True,
-                role__in=[RoleChoices.TEACHER, RoleChoices.STUDENT]
-            )
-        return User.objects.none()
+            return qs.filter(role__in=[RoleChoices.TEACHER, RoleChoices.STUDENT])
+        return qs.none()
 
     def perform_create(self, serializer):
         """
-        Auto-link created user to current tenant and validate role.
+        Validate role + create TenantMembership.
+        request.tenant is guaranteed by TenantRequiredMixin.
         """
         creator = self.request.user
-        tenant = getattr(self.request, "tenant", None)
         role = serializer.validated_data.get("role")
 
         # Role validation
-        if creator.role == RoleChoices.ADMIN:
-            allowed_roles = [RoleChoices.HOD, RoleChoices.TEACHER, RoleChoices.STUDENT]
-        elif creator.role == RoleChoices.HOD:
-            allowed_roles = [RoleChoices.TEACHER, RoleChoices.STUDENT]
-        else:
-            allowed_roles = []
+        allowed_roles = {
+            RoleChoices.ADMIN: [RoleChoices.HOD, RoleChoices.TEACHER, RoleChoices.STUDENT],
+            RoleChoices.HOD: [RoleChoices.TEACHER, RoleChoices.STUDENT],
+        }.get(creator.role, [])
 
         if role not in allowed_roles:
-            raise PermissionError(f"{creator.role} cannot create a user with role '{role}'")
+            raise serializers.ValidationError(
+                f"{creator.role} cannot create a user with role '{role}'"
+            )
 
+        # Save user
         user = serializer.save()
-        # Create TenantMembership for the user
+
+        # Link to current tenant
         TenantMembership.objects.create(
             user=user,
-            tenant=tenant,
+            tenant=self.request.tenant,
             role=role,
             is_active=True
         )
 
 
 # -----------------------------
-# JWT Login with HttpOnly cookies
+# JWT Login with HttpOnly Cookies + Tenant Claim
 # -----------------------------
+# accounts/views.py
 class CookieTokenObtainPairView(TokenObtainPairView):
-    """
-    Custom JWT login view that sets HttpOnly cookies.
-    """
     def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
-        if response.status_code == 200:
-            data = response.data
-            access = data.get("access")
-            refresh = data.get("refresh")
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.user
 
-            resp = Response({"message": "Login successful", "access_token": access, "refresh_token": refresh},status=200)
-            # Set HttpOnly cookies
-            resp.set_cookie(settings.JWT_ACCESS_COOKIE, access, httponly=True, samesite="Lax")
-            resp.set_cookie(settings.JWT_REFRESH_COOKIE, refresh, httponly=True, samesite="Lax")
+        refresh = RefreshToken.for_user(user)
+        access = refresh.access_token
 
-            return resp
-        return response
-    
+        # Add tenant claim
+        if not user.is_super_admin():
+            membership = TenantMembership.objects.filter(user=user, is_active=True).first()
+            if membership:
+                tenant_id = str(membership.tenant.tenant_id)
+                access["active_tenant_id"] = tenant_id
+                refresh["active_tenant_id"] = tenant_id  # Also add to refresh
 
-#For Logout
+        resp = Response({
+            "message": "Login successful",
+            "access_token": str(access),
+            "refresh_token": str(refresh),
+        })
 
+        resp.set_cookie(settings.JWT_ACCESS_COOKIE, str(access), httponly=True, samesite="Lax", path="/")
+        resp.set_cookie(settings.JWT_REFRESH_COOKIE, str(refresh), httponly=True, samesite="Lax", path="/")
+        return resp
+# -----------------------------
+# Logout
+# -----------------------------
 class LogoutView(APIView):
-    """
-    Logs out user by deleting JWT cookies (access + refresh).
-    Works with HttpOnly cookies set during login.
-    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
         response = Response({"message": "Logout successful"}, status=200)
-        # Delete the cookies safely
-        response.delete_cookie(settings.JWT_ACCESS_COOKIE, samesite="Lax")
-        response.delete_cookie(settings.JWT_REFRESH_COOKIE, samesite="Lax")
+        response.delete_cookie(settings.JWT_ACCESS_COOKIE, samesite="Lax", path="/")
+        response.delete_cookie(settings.JWT_REFRESH_COOKIE, samesite="Lax", path="/")
         return response

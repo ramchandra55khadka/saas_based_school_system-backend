@@ -1,23 +1,28 @@
 from django.test import TestCase
 from rest_framework.test import APIClient
 from django.urls import reverse
-from accounts.models import Organization, User
-from .models import Course, Batch
+from tenants.models import Tenant
+from accounts.models import User, TenantMembership
+from .models import Course
 
 class AcademicsTests(TestCase):
     def setUp(self):
         self.client = APIClient()
         # create two orgs
-        self.org1 = Organization.objects.create(org_name="Org1", org_reg_no="O1")
-        self.org2 = Organization.objects.create(org_name="Org2", org_reg_no="O2")
+        self.org1 = Tenant.objects.create(tenant_name="Org1", org_code="O1")
+        self.org2 = Tenant.objects.create(tenant_name="Org2", org_code="O2")
         # hod user in org1
-        self.hod = User.objects.create_user(username="hod1", password="pwd", organization=self.org1, role="hod")
+        self.hod = User.objects.create_user(username="hod1", password="pwd", role="hod")
+        TenantMembership.objects.create(user=self.hod, tenant=self.org1, role="hod")
         # teacher in org1
-        self.teacher = User.objects.create_user(username="t1", password="pwd", organization=self.org1, role="teacher")
+        self.teacher = User.objects.create_user(username="t1", password="pwd", role="teacher")
+        TenantMembership.objects.create(user=self.teacher, tenant=self.org1, role="teacher")
         # student in org1
-        self.student = User.objects.create_user(username="s1", password="pwd", organization=self.org1, role="student")
+        self.student = User.objects.create_user(username="s1", password="pwd", role="student")
+        TenantMembership.objects.create(user=self.student, tenant=self.org1, role="student")
         # hod in org2
-        self.hod2 = User.objects.create_user(username="hod2", password="pwd", organization=self.org2, role="hod")
+        self.hod2 = User.objects.create_user(username="hod2", password="pwd", role="hod")
+        TenantMembership.objects.create(user=self.hod2, tenant=self.org2, role="hod")
 
     def obtain_cookie(self, username, password):
         resp = self.client.post(reverse("token_obtain_pair"), {"username": username, "password": password}, format="json")

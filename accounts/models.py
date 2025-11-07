@@ -56,11 +56,11 @@ class User(AbstractUser):
     # -------- Validation --------
     def clean(self):
         # Admins must belong to a tenant
-        if self.role == RoleChoices.ADMIN and not self.tenant:
+        if self.role == RoleChoices.ADMIN and not hasattr(self, 'tenant'):
             raise ValidationError("Admin must belong to a tenant (organization).")
 
         # Super admins must NOT belong to any tenant
-        if self.role == RoleChoices.SUPER_ADMIN and self.tenant:
+        if self.role == RoleChoices.SUPER_ADMIN and hasattr(self, 'tenant') and self.tenant:
             raise ValidationError("Super Admin cannot belong to a tenant.")
 
 

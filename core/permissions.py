@@ -56,15 +56,26 @@ class IsAdminOrSuperAdmin(BasePermission):
 
 class IsAdminOrHodUserManagement(BasePermission):
     """
-    Object-level permission for managing users within a tenant:
+    Permission for managing users within a tenant:
     - Admin: can manage all users in the tenant.
     - HOD: can manage only teacher/student in the tenant.
     """
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated:
+            return False
+        tenant = getattr(request, 'tenant', None)
+        if not tenant:
+            return False
+        membership = TenantMembership.objects.filter(user=request.user, tenant=tenant, is_active=True).first()
+        if not membership:
+            return False
+        return membership.role in ['admin', 'hod']
+
     def has_object_permission(self, request, view, obj):
         user_membership = TenantMembership.objects.filter(user=request.user, is_active=True).first()
         if not user_membership:
             return False
-        
+
         obj_tenant_ids = [m.tenant.tenant_id for m in obj.memberships.all() if m.is_active]
         user_tenant_id = user_membership.tenant.tenant_id
 
