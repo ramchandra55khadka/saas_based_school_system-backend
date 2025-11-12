@@ -5,7 +5,7 @@ from .models import User, TenantMembership
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    list_display = ['id', 'email', 'first_name', 'last_name', 'role', 'is_active']
+    list_display = ['id', 'email', 'username','first_name', 'last_name', 'role', 'is_active']
     search_fields = ['email', 'first_name', 'last_name']
     list_filter = ['role', 'is_active', 'date_joined']
     readonly_fields = ['id', 'date_joined']
