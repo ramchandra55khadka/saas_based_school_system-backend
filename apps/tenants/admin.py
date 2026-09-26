@@ -4,7 +4,7 @@ from .models import Department, SchoolSettings, Tenant
 
 @admin.register(Tenant)
 class TenantAdmin(admin.ModelAdmin):
-    list_display = ['tenant_name', 'org_code', 'email', 'is_active', 'created_at']
+    list_display = ['tenant_name','slug', 'org_code', 'email', 'is_active', 'created_at']
     list_filter = ['is_active']
     search_fields = ['tenant_name', 'org_code']
     readonly_fields = ['tenant_id', 'created_at']

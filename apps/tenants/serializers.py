@@ -7,7 +7,7 @@ class TenantSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tenant
         fields = [
-            'tenant_id', 'tenant_name', 'org_code', 'address',
+            'tenant_id', 'tenant_name', 'slug', 'org_code', 'address',
             'phone', 'email', 'website', 'logo',
             'established_year', 'is_active', 'created_at',
         ]
@@ -21,7 +21,7 @@ class TenantDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tenant
         fields = [
-            'tenant_id', 'tenant_name', 'org_code', 'address',
+            'tenant_id', 'tenant_name', 'slug', 'org_code', 'address',
             'phone', 'email', 'website', 'logo',
             'established_year', 'is_active', 'created_at',
             'subscription_status',

@@ -63,6 +63,10 @@ class TenantRequiredMixin:
         # they may act on a specific school by passing ?tenant_id=<uuid>.
         if is_super_admin(request.user):
             tenant = self._tenant_from_query_param(request)
+            if tenant is None:
+                tenant = getattr(request, "tenant", None)
+            if getattr(request, "tenant_slug", None) and tenant is None:
+                raise ValidationError({"message": "School not found"})
             if tenant is not None:
                 request.tenant = tenant
             return
@@ -80,7 +84,15 @@ class TenantRequiredMixin:
         if not tenant_id:
             raise ValidationError({"message": "Tenant context missing"})
 
+        host_tenant = getattr(request, "tenant", None)
+        if getattr(request, "tenant_slug", None) and host_tenant is None:
+            raise ValidationError({"message": "School not found"})
+
         tenant = self._lookup_tenant(tenant_id)
+        if host_tenant is not None:
+            if host_tenant.tenant_id != tenant.tenant_id:
+                raise AuthenticationFailed("Token does not belong to this school")
+            tenant = host_tenant
 
         # Re-validate the membership on every request: the JWT's
         # ``active_tenant_id`` claim is minted at login, so a membership that is

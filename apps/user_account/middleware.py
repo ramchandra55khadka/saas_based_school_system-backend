@@ -32,3 +32,29 @@ class CustomJWTMiddleware:
                 logger.debug("Copied JWT to Authorization header")
 
         return self.get_response(request)
+
+
+class CookieJWTCSRFMiddleware:
+    """Require a double-submit CSRF token for unsafe cookie-auth requests."""
+
+    SAFE_METHODS = {'GET', 'HEAD', 'OPTIONS', 'TRACE'}
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.method.upper() not in self.SAFE_METHODS and self._has_auth_cookie(request):
+            cookie_token = request.COOKIES.get(getattr(settings, 'JWT_CSRF_COOKIE', 'csrf_token'))
+            header_token = request.META.get('HTTP_X_CSRFTOKEN')
+            if not cookie_token or not header_token or cookie_token != header_token:
+                from django.http import JsonResponse
+
+                return JsonResponse({'message': 'CSRF verification failed'}, status=403)
+        return self.get_response(request)
+
+    @staticmethod
+    def _has_auth_cookie(request):
+        return bool(
+            request.COOKIES.get(getattr(settings, 'JWT_ACCESS_COOKIE', 'access'))
+            or request.COOKIES.get(getattr(settings, 'JWT_REFRESH_COOKIE', 'refresh'))
+        )

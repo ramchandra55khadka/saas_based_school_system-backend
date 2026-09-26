@@ -17,6 +17,7 @@ The tests drive the real stack end to end: cookie login ->
 ``request.tenant`` from the token claim.
 """
 from datetime import timedelta
+from django.conf import settings
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -31,6 +32,30 @@ from apps.subscription.constants import FeatureKey
 from apps.subscription.models import Feature, Plan, Subscription
 from apps.teachers.models import LeaveRequest, Teacher
 from apps.tenants.models import Tenant
+
+
+class CsrfAwareAPIClient(APIClient):
+    """Test client that mirrors the browser's double-submit CSRF header.
+
+    ``CookieJWTCSRFMiddleware`` requires an unsafe request that carries an auth
+    cookie to also echo the ``csrf_token`` cookie back in ``X-CSRFToken`` — which
+    ``src/lib/api.ts`` does for real callers. The token is re-minted on every
+    refresh, so it is read from the cookie jar per request instead of being
+    captured once at login.
+    """
+
+    UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+    def request(self, **kwargs):
+        # Mirrors ``rest_framework.test.APIClient.request``, which is
+        # keyword-only and receives Django-style request kwargs.
+        method = str(kwargs.get("REQUEST_METHOD", "")).upper()
+        if method in self.UNSAFE_METHODS and "HTTP_X_CSRFTOKEN" not in kwargs:
+            cookie_name = getattr(settings, "JWT_CSRF_COOKIE", "csrf_token")
+            token = self.cookies.get(cookie_name)
+            if token is not None:
+                kwargs["HTTP_X_CSRFTOKEN"] = token.value
+        return super().request(**kwargs)
 
 
 class BaseTenantAPITestCase(TestCase):
@@ -114,24 +139,63 @@ class BaseTenantAPITestCase(TestCase):
         )
 
     def setUp(self):
-        self.client = APIClient()
+        self.client = CsrfAwareAPIClient()
 
-    def login(self, username, password):
-        """Log in through the real endpoint **using the user's email**.
+    def login(self, username, password, tenant=None):
+        """Log in through the real endpoints, in the correct login context.
+
+        Mirrors the browser: a school user signs in **on their school's
+        subdomain** via ``/api/auth/login/``, a platform super admin on the
+        platform host via ``/api/auth/super-user/login/``. The two endpoints
+        are deliberately not interchangeable, so the context is derived here
+        rather than left to the call site.
+
+        The school is conveyed with ``HTTP_X_TENANT_HOST`` — the same header the
+        Next.js proxy sets in production — so the test exercises the real
+        ``TenantMiddleware`` path instead of a test-only shortcut.
 
         Login is email-based; every user created in this suite follows the
-        ``{username}@example.com`` convention, so the email is derived from the
-        credentials tuple. The HttpOnly ``access`` cookie stays in the test
-        client and is promoted to an ``Authorization`` header by the custom
-        middleware - exactly what happens in the browser.
+        ``{username}@example.com`` convention. The HttpOnly ``access`` cookie
+        stays in the test client and is promoted to an ``Authorization`` header
+        by the custom middleware - exactly what happens in the browser.
         """
+        email = f"{username}@example.com"
+        user = UserAccount.objects.get(email__iexact=email)
+
+        if user.is_superuser:
+            url, extra = reverse("super_user_login"), {}
+        else:
+            if tenant is None:
+                membership = (
+                    user.memberships.filter(is_active=True)
+                    .select_related("tenant")
+                    .first()
+                )
+                self.assertIsNotNone(
+                    membership,
+                    f"{username} has no active membership; pass tenant= explicitly "
+                    f"to exercise a rejected tenant login.",
+                )
+                tenant = membership.tenant
+            url = reverse("auth_login")
+            extra = {
+                "HTTP_X_TENANT_HOST": (
+                    f"{tenant.slug}.{settings.TENANT_ROOT_DOMAIN}"
+                )
+            }
+
         response = self.client.post(
-            reverse("token_obtain_pair"),
-            {"email": f"{username}@example.com", "password": password},
+            url,
+            {"email": email, "password": password},
             format="json",
+            **extra,
         )
         self.assertEqual(response.status_code, 200, response.content)
         return response
+
+    def tenant_host(self, tenant):
+        """The ``HTTP_X_TENANT_HOST`` value that resolves to ``tenant``."""
+        return f"{tenant.slug}.{settings.TENANT_ROOT_DOMAIN}"
 
 class TenantAuthenticationTests(BaseTenantAPITestCase):
     """Bug A regression: the tenant API must work with a valid JWT cookie."""
@@ -146,12 +210,23 @@ class TenantAuthenticationTests(BaseTenantAPITestCase):
         response = self.client.get(reverse("academic-year-list"))
         self.assertEqual(response.status_code, 200, response.content)
 
-    def test_user_without_membership_gets_a_clear_400(self):
-        """A token without the active_tenant_id claim cannot bind a tenant."""
-        self.login(*self.nomad_creds)
-        response = self.client.get(reverse("academic-year-list"))
-        self.assertEqual(response.status_code, 400, response.content)
-        self.assertEqual(response.data["message"], "Tenant context missing")
+    def test_user_without_membership_cannot_get_a_tenant_token(self):
+        """An account with no membership is refused at login, not after it.
+
+        The old single ``/api/accounts/login/`` endpoint let such an account log
+        in and mint a claim-less token, which only surfaced later as a 400 from
+        the first tenant-scoped endpoint. Tenant login now rejects it up front.
+        """
+        response = self.client.post(
+            reverse("auth_login"),
+            {"email": "nomad@example.com", "password": self.nomad_creds[1]},
+            format="json",
+            HTTP_X_TENANT_HOST=self.tenant_host(self.tenant_a),
+        )
+        # A generic 401, not a 400: the response must not reveal that the
+        # account exists but merely lacks a membership in this school.
+        self.assertEqual(response.status_code, 401, response.content)
+        self.assertNotIn("access", response.cookies)
 
 
 class TenantIsolationTests(BaseTenantAPITestCase):

@@ -39,8 +39,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
 class AccountProfileOnboardSerializer(serializers.Serializer):
     """Flat payload that provisions an account, its profile and its membership.
 
-    This class owns the ``UserAccount`` fields (``username``, ``email``,
-    ``password``) and every personal-detail column of ``UserProfile``
+    This class owns the ``UserAccount`` fields (``email``, ``password``)
+    and every personal-detail column of ``UserProfile``
     (``PROFILE_ONBOARD_FIELDS``). ``save()`` writes account, profile and
     membership atomically, then hands what is left -- the role-specific
     fields -- to ``create_role_record``; the response is rendered by
@@ -49,7 +49,7 @@ class AccountProfileOnboardSerializer(serializers.Serializer):
     The membership role comes from ``resolve_membership_role(attrs)`` and must
     be grantable by the caller (``grantable_roles`` -- the same escalation
     matrix the user-management API enforces). A failure anywhere (duplicate
-    username, taken employee ID / roll number, ...) leaves nothing behind.
+    email, taken employee ID / roll number, ...) leaves nothing behind.
 
     Instantiate with ``context={'request': ..., 'tenant': <school>}``.
     """
@@ -62,7 +62,6 @@ class AccountProfileOnboardSerializer(serializers.Serializer):
     RECORD_SERIALIZER_CLASS = None
 
     # --- User account (``user_account.UserAccount``) ---
-    username = serializers.CharField(max_length=300)
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
 
@@ -102,14 +101,13 @@ class AccountProfileOnboardSerializer(serializers.Serializer):
         record.save()
         return record
 
-    def validate_username(self, value):
-        if UserAccount.objects.filter(username__iexact=value).exists():
-            raise serializers.ValidationError('This username is already taken.')
-        return value
-
     def validate_email(self, value):
-        if UserAccount.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError('This email is already registered.')
+        tenant = self.require_tenant()
+        if UserAccount.objects.filter(
+            memberships__tenant=tenant,
+            email__iexact=value,
+        ).exists():
+            raise serializers.ValidationError('This email is already registered in this school.')
         return value
 
     def validate(self, attrs):
@@ -135,8 +133,10 @@ class AccountProfileOnboardSerializer(serializers.Serializer):
         tenant = self.require_tenant()
         role = validated_data.pop('role')
 
+        email = validated_data.pop('email')
         account = UserAccount(
-            username=validated_data.pop('username'), email=validated_data.pop('email')
+            email=email,
+            username=UserAccount.generate_unique_username(email, tenant=tenant),
         )
         account.set_password(validated_data.pop('password'))
         account.save()

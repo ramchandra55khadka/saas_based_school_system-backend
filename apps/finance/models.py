@@ -85,6 +85,11 @@ class StudentInvoice(AbstractTenantModel, AbstractTimeStampedModel):
         ordering = ['-due_date']
         verbose_name = 'Student Invoice'
         verbose_name_plural = 'Student Invoices'
+        indexes = [
+            models.Index(fields=['tenant', 'status', 'due_date']),
+            models.Index(fields=['tenant', 'student', 'due_date']),
+            models.Index(fields=['tenant', 'academic_year', 'due_date']),
+        ]
 
     def __str__(self):
         return f"Invoice {self.title} for {self.student.user_profile} ({self.status})"
@@ -124,6 +129,10 @@ class FeePayment(AbstractTenantModel, AbstractTimeStampedModel):
         ordering = ['-payment_date']
         verbose_name = 'Fee Payment'
         verbose_name_plural = 'Fee Payments'
+        indexes = [
+            models.Index(fields=['tenant', 'payment_date']),
+            models.Index(fields=['tenant', 'invoice', 'payment_date']),
+        ]
 
     def save(self, *args, **kwargs):
         if self.invoice_id and not self.tenant_id:
@@ -305,6 +314,10 @@ class Expense(AbstractTenantModel, AbstractTimeStampedModel):
         ordering = ['-expense_date']
         verbose_name = 'Expense'
         verbose_name_plural = 'Expenses'
+        indexes = [
+            models.Index(fields=['tenant', 'expense_date']),
+            models.Index(fields=['tenant', 'category', 'expense_date']),
+        ]
 
     def __str__(self):
         return f"{self.title} ({self.amount})"
@@ -328,6 +341,10 @@ class Payroll(AbstractTenantModel, AbstractTimeStampedModel):
     class Meta:
         ordering = ['-month']
         unique_together = ('tenant', 'staff', 'month')
+        indexes = [
+            models.Index(fields=['tenant', 'month']),
+            models.Index(fields=['tenant', 'status', 'month']),
+        ]
         verbose_name = 'Payroll Record'
         verbose_name_plural = 'Payroll Records'
 

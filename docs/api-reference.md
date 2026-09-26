@@ -31,8 +31,9 @@ All routes are registered in `config/urls.py`:
   `CustomJWTMiddleware` honours an existing `Authorization` header and only falls back to the cookie.
 - **Trailing slashes are required** — all routers are DRF `DefaultRouter`s.
 - **CRUD verbs** on every registered route: `GET` list, `POST` create, `GET {id}/`, `PUT`/`PATCH {id}/`, `DELETE {id}/`.
-- **No pagination is configured** (`REST_FRAMEWORK` sets no `DEFAULT_PAGINATION_CLASS`), so list
-  endpoints return a bare JSON array — not `{count, next, previous, results}`.
+- **List endpoints are paginated by default.** DRF uses `utils.paginations.StandardResultsSetPagination`
+  (`page_size=20`, `page_size_query_param=page_size`, `max_page_size=100`), so list responses are
+  `{count, next, previous, results}` unless a view explicitly opts out.
 - **Permissions are global by default:** `DEFAULT_PERMISSION_CLASSES = [IsAuthenticated]`, so every
   endpoint requires login unless it overrides `permission_classes` (only the auth endpoints do).
 - `tenant` is a **read-only** serializer field everywhere — it is never accepted from the client,
@@ -42,11 +43,12 @@ All routes are registered in `config/urls.py`:
 
 | Method | Endpoint | Permission | Behaviour |
 |---|---|---|---|
-| `POST` | `/api/accounts/login/` | public | Validates **`email` + `password`** credentials, mints a refresh token, embeds `active_tenant_id` (from the user's first active membership; **omitted** for super admins), returns `{message, access_token, refresh_token}` **and** sets `access` + `refresh` HttpOnly cookies. Unknown email, wrong password or inactive account → `401`. |
-| `POST` | `/api/accounts/token/refresh/` | public (refresh cookie) | Reads the `refresh` cookie, returns `{message, access_token}` and re-sets the `access` cookie. `401` if the cookie is missing/invalid. |
-| `POST` | `/api/accounts/logout/` | authenticated | Deletes both JWT cookies and returns `{message: "Logout successful"}`. Does **not** revoke the refresh token server-side. |
+| `POST` | `/api/auth/login/` | public (**school subdomain only**) | **Tenant login.** Validates **`email` + `password`** against the tenant resolved from the request host, embeds `active_tenant_id`/`active_tenant_slug`, and sets `access` + `refresh` HttpOnly cookies. Platform host → `400`; unknown school → `400`; no membership in that school → `401`. |
+| `POST` | `/api/auth/refresh/` | public (refresh cookie) | Reads the `refresh` cookie, rotates/blacklists it, re-sets `access` + `refresh` HttpOnly cookies, and returns `{message}`. `401` if the cookie is missing/invalid. |
+| `POST` | `/api/auth/super-user/login/` | public (**platform host only**) | **Super-admin login.** Validates **`email` + `password`** against global `is_superuser` accounts and issues a token with **no** tenant claim. School subdomain → `400`; a non-superuser → `401`. |
+| `POST` | `/api/auth/logout/` | public (refresh cookie) | Blacklists the refresh token and clears the `access`/`refresh`/CSRF cookies. Shared by both login contexts. |
 | `GET` | `/api/accounts/me/` | authenticated | `{status, data}` where `data` is the profile plus every membership (tenant, tenant_name, role, role_display, is_active, joined_at). |
-| `POST` | `/api/accounts/superadmin/create-tenant/` | `IsSuperAdmin` | Creates a `Tenant` **and** its first `admin` user **and** the `TenantMembership` in one transaction. Body: `tenant_name`, `org_code`, `address?`, `admin_username`, `admin_email`, `admin_password`. |
+| `POST` | `/api/accounts/superadmin/create-tenant/` | `IsSuperAdmin` | Creates a `Tenant` **and** its first `admin` user **and** the `TenantMembership` in one transaction. Body: `tenant_name`, `org_code`, `slug?`, `address?`, `admin_email`, `admin_password`. The admin username is generated from the email. |
 | `GET/POST/PUT/PATCH/DELETE` | `/api/accounts/user-management/` | `IsAdminOrHodUserManagement` | Tenant-scoped user CRUD. List is filtered by `tenantmembership__tenant`. Admin may create `hod/teacher/student/parent/accountant`; HOD only `teacher/student`; creating a user also creates the membership. `password` is write-only. |
 
 ### `subscription` — `/api/subscription/`

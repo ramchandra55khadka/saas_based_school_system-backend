@@ -53,6 +53,10 @@ class Staff(AbstractTenantModel, AbstractTimeStampedModel):
                 condition=~models.Q(employee_id=''),
             )
         ]
+        indexes = [
+            models.Index(fields=['tenant', 'designation', 'is_active']),
+            models.Index(fields=['tenant', 'department', 'is_active']),
+        ]
 
     def __str__(self):
         return f'{self.user_profile} ({self.get_designation_display()})'

@@ -31,6 +31,13 @@ SECRET_KEY = config('DJANGO_SECRET_KEY', default='django-insecure-n(k*p7g!tk9%80
 DEBUG = config('DJANGO_DEBUG', default=True, cast=bool)
 
 ALLOWED_HOSTS = [h.strip() for h in config('DJANGO_ALLOWED_HOSTS', default='').split(',') if h.strip()]
+TENANT_ROOT_DOMAIN = config('TENANT_ROOT_DOMAIN', default='')
+TENANT_PLATFORM_HOSTS = [
+    h.strip() for h in config(
+        'TENANT_PLATFORM_HOSTS',
+        default='localhost,127.0.0.1,testserver'
+    ).split(',') if h.strip()
+]
 
 AUTH_USER_MODEL = 'user_account.UserAccount'
 
@@ -76,12 +83,14 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'apps.tenants.middleware.TenantMiddleware',
     # Must come BEFORE your custom middleware
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     # Your custom JWT +(AFTER auth)
     # Custom: copy JWT from cookie to Authorization header (so DRF SimpleJWT works)
     'apps.user_account.middleware.CustomJWTMiddleware',
+    'apps.user_account.middleware.CookieJWTCSRFMiddleware',
 ]
 
 REST_FRAMEWORK = {
@@ -91,6 +100,12 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+    "DEFAULT_THROTTLE_RATES": {
+        "auth_login": config("AUTH_LOGIN_THROTTLE", default="5/min"),
+        "auth_refresh": config("AUTH_REFRESH_THROTTLE", default="20/min"),
+    },
+    "DEFAULT_PAGINATION_CLASS": "utils.paginations.StandardResultsSetPagination",
+    "PAGE_SIZE": 20,
 }
 
 
@@ -211,6 +226,10 @@ from datetime import timedelta
 # cookie names
 JWT_ACCESS_COOKIE = "access"
 JWT_REFRESH_COOKIE = "refresh"
+JWT_CSRF_COOKIE = "csrf_token"
+JWT_COOKIE_SAMESITE = config('JWT_COOKIE_SAMESITE', default='Lax')
+JWT_ACCESS_COOKIE_AGE = 30 * 60
+JWT_REFRESH_COOKIE_AGE = 7 * 24 * 60 * 60
 # Cookies must be Secure in production (HTTPS-only); reads settings dynamically.
 JWT_COOKIE_SECURE = not DEBUG
 
@@ -218,8 +237,9 @@ JWT_COOKIE_SECURE = not DEBUG
 # presented refresh token (token_blacklist app), so a stolen refresh token dies
 # on first reuse.
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "UPDATE_LAST_LOGIN": True,
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
 }

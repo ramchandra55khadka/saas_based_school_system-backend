@@ -112,7 +112,8 @@ inherit `AbstractTenantModel` (+ `AbstractTimeStampedModel`) and be exposed thro
         │
         ▼
  [ TenantViewSet.dispatch ]  apps/core/mixins.py → TenantRequiredMixin
-   ├─ path in PUBLIC_PATHS ("/api/accounts/login/", "/logout/", "/token/refresh/",
+   ├─ path in PUBLIC_PATHS ("/api/auth/login/", "/api/auth/super-user/login/",
+   │  "/api/auth/refresh/", "/api/auth/logout/",
    │  "/superadmin/create-tenant/", "/admin/", "/static/", "/media/") → skip tenant binding
    ├─ not authenticated → 401 {"detail": "Authentication required"}
    ├─ user.is_super_admin() → skip tenant binding (no request.tenant)

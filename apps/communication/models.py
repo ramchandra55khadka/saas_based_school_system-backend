@@ -48,6 +48,9 @@ class Announcement(AbstractTenantModel, AbstractTimeStampedModel):
         ordering = ['-created_at']
         verbose_name = 'Announcement'
         verbose_name_plural = 'Announcements'
+        indexes = [
+            models.Index(fields=['tenant', 'target_audience', 'created_at']),
+        ]
 
     def __str__(self):
         return self.title
@@ -64,6 +67,10 @@ class Message(AbstractTenantModel, AbstractTimeStampedModel):
         ordering = ['-created_at']
         verbose_name = 'Message'
         verbose_name_plural = 'Messages'
+        indexes = [
+            models.Index(fields=['tenant', 'recipient', 'is_read', 'created_at']),
+            models.Index(fields=['tenant', 'sender', 'created_at']),
+        ]
 
     def __str__(self):
         return f"{self.sender.username} to {self.recipient.username}: {self.subject}"
@@ -79,6 +86,9 @@ class Notification(AbstractTenantModel, AbstractTimeStampedModel):
         ordering = ['-created_at']
         verbose_name = 'Notification'
         verbose_name_plural = 'Notifications'
+        indexes = [
+            models.Index(fields=['tenant', 'user', 'is_read', 'created_at']),
+        ]
 
     def __str__(self):
         return f"Notification for {self.user.username}: {self.title}"

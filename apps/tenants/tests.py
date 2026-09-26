@@ -139,7 +139,6 @@ class TenantOnboardingProfileFieldsTests(BaseTenantAPITestCase):
             "email": "info@delta.example",
             "website": "https://delta.example",
             "established_year": "1992",
-            "admin_username": "delta_admin",
             "admin_email": "delta_admin@example.com",
             "admin_password": "delta-pass-123",
         }

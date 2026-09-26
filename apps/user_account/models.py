@@ -4,6 +4,7 @@ from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
+from django.utils.text import slugify
 from apps.tenants.models import Tenant
 
 from utils.abstract_model import AbstractUUID
@@ -15,18 +16,12 @@ from .constants import ROLE_MAX_LENGTH, RoleChoices  # noqa: F401
 
 
 class UserAccount(AbstractBaseUser, PermissionsMixin):
-    """Authentication account shared across all schools.
-
-    Identity + login state only: personal details (first/last name, date of
-    birth, address, …) live on the linked ``user_profile.UserProfile`` row
-    (``user.profile``), so this model deliberately does not re-declare them.
-    """
 
     # Stable public identifier, distinct from the auto integer PK.
     uuid = models.UUIDField(default=uuid.uuid4, editable=False, db_index=True, unique=True)
 
-    username = models.CharField(max_length=300, unique=True)
-    email = models.EmailField(unique=True)
+    username = models.CharField(max_length=300, blank=True, db_index=True)
+    email = models.EmailField(db_index=True)
     is_active = models.BooleanField(_('active'), default=True)
     is_staff = models.BooleanField(
         _('staff status'),
@@ -41,7 +36,7 @@ class UserAccount(AbstractBaseUser, PermissionsMixin):
     phone_is_verified = models.BooleanField(default=False)
 
     objects = UserAccountManager()
-    USERNAME_FIELD = 'username'
+    USERNAME_FIELD = 'uuid'
     REQUIRED_FIELDS = ['email']
 
     class Meta:
@@ -49,8 +44,31 @@ class UserAccount(AbstractBaseUser, PermissionsMixin):
         verbose_name = 'User Account'
         verbose_name_plural = 'User Accounts'
 
+
+    @classmethod
+    def generate_unique_username(cls, email, tenant=None):
+        local_part = (email or '').split('@', 1)[0]
+        base = slugify(local_part).replace('-', '_') or 'user'
+        base = base[:300]
+        username = base
+        if tenant is None:
+            return username
+
+        counter = 2
+        qs = cls.objects.filter(memberships__tenant=tenant)
+        while qs.filter(username__iexact=username).exists():
+            suffix = f'_{counter}'
+            username = f'{base[:300 - len(suffix)]}{suffix}'
+            counter += 1
+        return username
+
+    def save(self, *args, **kwargs):
+        if not self.username:
+            self.username = type(self).generate_unique_username(self.email)
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return self.username
+        return self.username or self.email or str(self.uuid)
 
     def is_super_admin(self):
         return self.is_superuser
@@ -88,6 +106,7 @@ class TenantMembership(AbstractUUID, models.Model):
             ),
         ]
         indexes = [
+            models.Index(fields=['tenant', 'is_active']),
             models.Index(fields=['tenant', 'role', 'is_active']),
             models.Index(fields=['user', 'is_active']),
         ]

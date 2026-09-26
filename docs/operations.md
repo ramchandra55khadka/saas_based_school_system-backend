@@ -65,14 +65,25 @@ uv run python manage.py runserver
 ### 5. Smoke-test the auth flow
 
 ```bash
-# log in and keep the cookies (replace credentials with a real user)
-curl -i -c cookies.txt -X POST http://127.0.0.1:8000/api/accounts/login/ \
+# Super-admin login — platform host only, needs an is_superuser account
+curl -i -c cookies.txt -X POST http://127.0.0.1:8000/api/auth/super-user/login/ \
      -H 'Content-Type: application/json' \
-     -d '{"email":"admin1@example.com","password":"pass12345"}'
+     -d '{"email":"superadmin@example.com","password":"pass12345"}'
+
+# School login — must arrive on the school's host. `X-Tenant-Host` is what the
+# frontend proxy sends, and is what TenantMiddleware reads.
+curl -i -c cookies.txt -X POST http://127.0.0.1:8000/api/auth/login/ \
+     -H 'Content-Type: application/json' \
+     -H 'X-Tenant-Host: blue-bird.edunexus.local' \
+     -d '{"email":"admin@bluebird.example","password":"pass12345"}'
 
 # authenticated request using the stored cookie
 curl -b cookies.txt http://127.0.0.1:8000/api/accounts/me/
 ```
+
+The two logins are not interchangeable: `/api/auth/login/` answers `400` on a
+platform host, and `/api/auth/super-user/login/` answers `400` on a school
+subdomain.
 
 `/api/accounts/me/` is a good health check: it returns the caller's profile plus every
 tenant membership.
@@ -159,7 +170,7 @@ school *and* its first admin in one call:
 curl -b cookies.txt -X POST http://localhost:8000/api/accounts/superadmin/create-tenant/ \
   -H 'Content-Type: application/json' \
   -d '{"tenant_name":"Demo School","org_code":"DEMO-001",
-       "admin_username":"admin1","admin_email":"admin1@example.com",
+       "admin_email":"admin1@example.com",
        "admin_password":"pass12345"}'
 ```
 
@@ -281,7 +292,7 @@ The suite was rewritten on **2026-09-21** to pin the Bug A fix and the tenancy g
 | `apps/user_account/tests.py` | super-admin tenant onboarding (`create-tenant`, Bug B), duplicate-field 400s, JWT cookie login, `/me/` |
 | `apps/academics/tests.py` | subject CRUD scoping, `ReferenceDataViewSet` read-vs-write enforcement, cross-tenant invisibility, **timetable role scoping (teacher → own periods, student → own section, admin → all)** |
 
-Tests drive the **real** stack end to end: login via `POST /api/accounts/login/` → the `HttpOnly`
+Tests drive the **real** stack end to end: login via `POST /api/auth/login/` (or `/api/auth/super-user/login/`) → the `HttpOnly`
 cookie is promoted to an `Authorization` header by `accounts.middleware.CustomJWTMiddleware` →
 SimpleJWT validates it → `TenantRequiredMixin` resolves `request.tenant` from the token claim. No
 shortcuts around middleware or authentication.

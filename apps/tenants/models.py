@@ -1,5 +1,6 @@
 import uuid
 from django.db import models
+from django.utils.text import slugify
 
 from utils.abstract_model import AbstractTimeStampedModel, AbstractUUID
 
@@ -12,6 +13,7 @@ class Tenant(AbstractTimeStampedModel, models.Model):
         primary_key=True, default=uuid.uuid4, editable=False
     )
     tenant_name = models.CharField(max_length=255, unique=True)
+    slug = models.SlugField(max_length=120, unique=True, db_index=True)
     org_code = models.CharField(max_length=100, unique=True)
     address = models.TextField(blank=True)
     phone = models.CharField(max_length=20, blank=True)
@@ -28,6 +30,21 @@ class Tenant(AbstractTimeStampedModel, models.Model):
 
     def __str__(self):
         return self.tenant_name
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base_slug = slugify(self.tenant_name) or slugify(self.org_code) or 'school'
+            slug = base_slug[:120]
+            counter = 2
+            qs = type(self).objects.all()
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            while qs.filter(slug__iexact=slug).exists():
+                suffix = f'-{counter}'
+                slug = f'{base_slug[:120 - len(suffix)]}{suffix}'
+                counter += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
 
 
 class Department(AbstractUUID, AbstractTimeStampedModel, models.Model):

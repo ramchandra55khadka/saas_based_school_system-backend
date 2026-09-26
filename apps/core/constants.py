@@ -6,11 +6,13 @@ Importing from ``user_account.constants`` is safe: that module only depends on
 from apps.user_account.constants import RoleChoices
 
 # Request paths that never require tenant resolution (public endpoints).
+# Keep in sync with apps/user_account/urls.py.
 PUBLIC_PATHS = {
-    '/api/accounts/login/',
-    '/api/accounts/logout/',
+    '/api/auth/login/',
+    '/api/auth/super-user/login/',
+    '/api/auth/refresh/',
+    '/api/auth/logout/',
     '/api/accounts/superadmin/create-tenant/',
-    '/api/accounts/token/refresh/',
     '/admin/', '/static/', '/media/',
 }
 

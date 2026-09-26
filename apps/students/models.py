@@ -49,6 +49,10 @@ class Student(AbstractTenantModel, AbstractTimeStampedModel):
                 condition=models.Q(roll_number__isnull=False),
             )
         ]
+        indexes = [
+            models.Index(fields=['tenant', 'school_class', 'section']),
+            models.Index(fields=['tenant', 'admission_date']),
+        ]
 
     def __str__(self):
         return f'{self.user_profile} - {self.roll_number or "No Roll"}'
@@ -133,6 +137,11 @@ class StudentAttendance(AbstractTenantModel, AbstractTimeStampedModel):
         verbose_name = 'Student Attendance'
         verbose_name_plural = 'Student Attendance'
         unique_together = ('student', 'date')
+        indexes = [
+            models.Index(fields=['tenant', 'date']),
+            models.Index(fields=['tenant', 'section', 'date']),
+            models.Index(fields=['tenant', 'status', 'date']),
+        ]
 
     def __str__(self):
         return f'{self.student} - {self.date} - {self.status}'
@@ -165,6 +174,9 @@ class Exam(AbstractTenantModel, AbstractTimeStampedModel):
         ordering = ['-start_date']
         verbose_name = 'Exam'
         verbose_name_plural = 'Exams'
+        indexes = [
+            models.Index(fields=['tenant', 'academic_year', 'start_date']),
+        ]
 
     def __str__(self):
         return f'{self.name} ({self.get_exam_type_display()})'
@@ -197,6 +209,10 @@ class ExamResult(AbstractTenantModel, AbstractTimeStampedModel):
         verbose_name = 'Exam Result'
         verbose_name_plural = 'Exam Results'
         unique_together = ('exam', 'student', 'subject')
+        indexes = [
+            models.Index(fields=['tenant', 'exam']),
+            models.Index(fields=['tenant', 'student']),
+        ]
 
     def __str__(self):
         return f'{self.student} - {self.exam.name} - {self.subject.name}: {self.marks_obtained}/{self.max_marks}'

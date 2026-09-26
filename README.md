@@ -26,11 +26,13 @@ membership) sells subscriptions to independent **schools** (tenants).
 - **`Subscription`** — ties a tenant to a plan. `perform_create` derives `start_date = now`,
   `end_date = start + plan.duration_days`, `is_active = True`; changing the plan on renewal
   **recomputes** `end_date`. `tenant`/`start_date`/`end_date` are read-only in serializers.
-- **`UserAccount`** + **`UserProfile`** — one identity (email/password) and one shared personal
-  profile. Their place in a school is a **`TenantMembership`**, the pivot that carries exactly one
-  **role**: `admin, principal, hod, teacher, student, parent, librarian, accountant, staff`.
-- One account may hold memberships in many schools with different roles. The JWT embeds an
-  `active_tenant_id`, so a single login operates in exactly one school at a time.
+- **`UserAccount`** + **`UserProfile`** — tenant-scoped login identity and personal profile.
+  The same email/username may exist in multiple schools as separate accounts with separate
+  passwords. The account's place in a school is a **`TenantMembership`**, the pivot that carries
+  exactly one **role**: `admin, principal, hod, teacher, student, parent, librarian, accountant, staff`.
+- Login is school-specific: `blue-bird.edunexus.com` resolves the Blue Bird tenant and authenticates against
+  the active membership in that tenant. The JWT embeds an `active_tenant_id`, so every request
+  operates in exactly one school context.
 - **Tenant creation is one super-admin transaction** — `Tenant` + first `admin` account +
   membership are created together, so a school can never exist without an owner
   (`POST /api/accounts/superadmin/create-tenant/`).
@@ -39,19 +41,24 @@ membership) sells subscriptions to independent **schools** (tenants).
 
 One shared schema; isolation is enforced in application code.
 
-1. **Auth is cookie-based JWT.** `POST /api/accounts/login/` validates email + password, embeds
-   `active_tenant_id` (omitted for super admins) and sets `access` + `refresh` HttpOnly cookies.
-   `CustomJWTMiddleware` only copies the cookie into the `Authorization` header; SimpleJWT does the
-   real authentication.
-2. **Tenant binding is per-view.** `TenantRequiredMixin.perform_authentication()` resolves
-   `request.tenant` from the JWT claim *after* token validation and *before* permission checks.
-   Super admins skip resolution — `request.tenant` stays unset and views branch on that.
-3. **Querysets fail closed.** `TenantQuerysetMixin.get_queryset()` returns `.none()` when no tenant
+1. **Tenant is resolved from the host.** `TenantMiddleware` maps a host such as
+   `blue-bird.edunexus.com` to `Tenant.slug == "blue-bird"` and attaches `request.tenant`. Local development
+   uses the same pattern with `blue-bird.edunexus.local`.
+2. **Auth is cookie-based JWT, with login split by context.** `POST /api/auth/login/` validates email +
+   password inside the tenant resolved from the host and embeds `active_tenant_id`;
+   `POST /api/auth/super-user/login/` is the platform-host-only super-admin counterpart and embeds no
+   tenant claim. `POST /api/auth/refresh/` and `POST /api/auth/logout/` are shared by both. All of them
+   set `access` + `refresh` HttpOnly cookies plus a CSRF token cookie. `CustomJWTMiddleware` only copies the cookie into the `Authorization` header;
+   SimpleJWT does the real authentication.
+3. **Tenant binding is verified per-view.** `TenantRequiredMixin.perform_authentication()` checks
+   the JWT tenant claim against the host tenant *after* token validation and *before* permission
+   checks. Super admins can operate on a school with `?tenant_id=<uuid>`.
+4. **Querysets fail closed.** `TenantQuerysetMixin.get_queryset()` returns `.none()` when no tenant
    is bound, filters `tenant=tenant` on tenant-owned models and `memberships__tenant` on
    `UserAccount`. A missing tenant can never leak another school's rows.
-4. **`tenant` is never client-supplied.** It is a read-only serializer field everywhere;
+5. **`tenant` is never client-supplied.** It is a read-only serializer field everywhere;
    `perform_create()` stamps `serializer.save(tenant=request.tenant)`.
-5. **Cross-tenant references are validated in models.** `ensure_same_tenant()` in `clean()` rejects
+6. **Cross-tenant references are validated in models.** `ensure_same_tenant()` in `clean()` rejects
    e.g. a `Teacher` whose `Staff` record or `primary_subject` belongs to another school.
 
 ## 3. How access control works
@@ -113,18 +120,76 @@ timetables resolve to the caller's own periods or section, `AnnouncementViewSet`
   Class/section/department/subject must belong to the school, and the students action enforces the
   plan's `max_students` before writing (admin/HOD only). Any failure leaves nothing behind.
 
-## 5. Quick start
+## 5. Local setup and run
+
+### Backend
 
 ```bash
-uv sync && cp .env.example .env      # fill in DB_* credentials
-uv run python manage.py migrate
-uv run python manage.py seed_demo    # demo school on the Free plan
-uv run python manage.py bootstrap_superadmin
-uv run python manage.py runserver
+cd ~/Desktop/school-saas/school_saas-backend
+uv sync
+cp .env.example .env
 ```
 
-Then `POST /api/accounts/login/` (JWT cookies are set for you) and `GET /api/accounts/me/` to list
-memberships. Full setup in [`docs/operations.md`](docs/operations.md).
+Edit `.env` for your database. For local school subdomains, use:
+
+```env
+TENANT_ROOT_DOMAIN=edunexus.local
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,.edunexus.local
+TENANT_PLATFORM_HOSTS=localhost,127.0.0.1,testserver
+CSRF_TRUSTED_ORIGINS=http://localhost:3000,http://blue-bird.edunexus.local:3000,http://kmc.edunexus.local:3000,http://capital-hill.edunexus.local:3000,http://golden-gate.edunexus.local:3000,http://sos.edunexus.local:3000
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://blue-bird.edunexus.local:3000,http://kmc.edunexus.local:3000,http://capital-hill.edunexus.local:3000,http://golden-gate.edunexus.local:3000,http://sos.edunexus.local:3000
+```
+
+Add local hostnames to `/etc/hosts`:
+
+```text
+127.0.0.1 blue-bird.edunexus.local
+127.0.0.1 kmc.edunexus.local
+127.0.0.1 capital-hill.edunexus.local
+127.0.0.1 golden-gate.edunexus.local
+127.0.0.1 sos.edunexus.local
+```
+
+Run the backend:
+
+```bash
+uv run manage.py migrate
+uv run manage.py bootstrap_superadmin
+uv run manage.py seed_demo
+uv run manage.py runserver 127.0.0.1:8000
+```
+
+### Frontend
+
+In another terminal:
+
+```bash
+cd ~/Desktop/school-saas/school_saas_frontend
+pnpm install
+printf 'NEXT_PUBLIC_API_URL=http://127.0.0.1:8000\nBACKEND_URL=http://127.0.0.1:8000\n' > .env.local
+pnpm dev --hostname 0.0.0.0
+```
+
+Open school-specific URLs:
+
+```text
+http://blue-bird.edunexus.local:3000/login
+http://kmc.edunexus.local:3000/login
+http://capital-hill.edunexus.local:3000/login
+http://golden-gate.edunexus.local:3000/login
+http://sos.edunexus.local:3000/login
+```
+
+Create tenants whose slugs match the subdomains, for example `blue-bird`, `kmc`, `capital-hill`, `golden-gate`, and `sos`. To test tenant-scoped
+accounts, create the same email in both schools with different passwords:
+
+```text
+Blue Bird: ram@example.com / blue-bird-password
+KMC: ram@example.com / kmc-password
+```
+
+Expected result: `blue-bird.edunexus.local` accepts only the Blue Bird password, and `kmc.edunexus.local`
+accepts only the KMC password. Full operations notes live in [`docs/operations.md`](docs/operations.md).
 
 ## 6. Known gaps
 

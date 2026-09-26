@@ -25,8 +25,8 @@ layer; `core.models` composes it with the tenancy FK.
 Timestamps are consolidated on a single `updated_at` (`auto_now`) everywhere. Mix
 `AbstractTenantModel` + `AbstractTimeStampedModel` for normal tenant data; models that need no `updated_at`
 column take `AbstractTenantModel` directly. Non-tenant models (`Tenant`, `UserProfile`, `Plan`,
-`Department` and the
-`communication` models) mix in `utils.abstract_model.AbstractTimeStampedModel`.
+and `Department`) mix in `utils.abstract_model.AbstractTimeStampedModel`; communication rows are
+tenant-owned and use `AbstractTenantModel`.
 (`AbstractCreatedAtModifiedAt` was folded into `AbstractTimeStampedModel` — the old dead `modified_at`
 field became an auto-maintained `updated_at`.)
 
@@ -165,14 +165,14 @@ authorization.
 ### `user_profile`
 
 **`UserProfile`** — personal information for a `UserAccount` (OneToOne, `related_name='profile'`):
-`first_name`, `last_name`, `phone`, `date_of_birth`, `address`, `profile_image`, `created_at`,
-`modified_at`. **Not tenant-scoped.** This is the only model in the app: everything role- or
-school-specific hangs off it in its own app — `profile.student` → `students.Student`,
-`profile.parent` → `parents.Parent`, `profile.staff` → `staff.Staff`,
-`profile.staff.teachers` → `teachers.Teacher`.
+`first_name`, `last_name`, `phone`, `gender`, `date_of_birth`, `nationality`, `address`,
+`profile_image`, `created_at`, `updated_at`. **Not tenant-scoped by design.** Tenant scope comes
+from `TenantMembership` plus the role/domain records (`Student`, `Parent`, `Staff`, `Teacher`).
+Adding a `tenant` FK here would duplicate `TenantMembership.tenant` and the role-record tenant and
+would require keeping three tenant values in sync.
 
-Timestamps come from `AbstractCreatedAtModifiedAt` (plus `AbstractUUID`); `modified_at` replaced the
-model's original hand-written `updated_at` column via a `RenameField`, so existing values survived.
+Timestamps come from `AbstractTimeStampedModel` (plus `AbstractUUID`). The old `modified_at` column
+was renamed to auto-maintained `updated_at` in migrations.
 
 ### `staff`
 
@@ -246,7 +246,7 @@ Relations to note:
 
 - `Class` ← `Section` is `related_name='sections'`.
 - `Student.school_class` / `.section` point at `academics.Class` / `academics.Section` via string references, so `students` depends on `academics` at migration level.
-- `Student.user_profile` is an O2O to the non-tenant `user_profile.UserProfile`; the tenant scope comes from `Student.tenant` itself. `parents.Parent`/`StudentGuardian` import `students.models` directly, so `parents` depends on both `students` and `user_profile`.
+- `Student.user_profile` is an O2O to the tenant-neutral `user_profile.UserProfile`; the tenant scope comes from `Student.tenant` plus the account's `TenantMembership`. `parents.Parent`/`StudentGuardian` import `students.models` directly, so `parents` depends on both `students` and `user_profile`.
 - `TeacherAssignment.teacher` and `TimetableEntry.teacher` are FKs to **`User`**, not `teachers.Teacher` — a teacher is any user with a membership whose role is `teacher`/`hod`/`principal`.
 
 ### `students`

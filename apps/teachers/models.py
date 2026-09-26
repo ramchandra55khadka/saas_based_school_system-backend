@@ -89,6 +89,11 @@ class TeacherAttendance(AbstractTenantModel, AbstractTimeStampedModel):
         verbose_name = 'Teacher Attendance'
         verbose_name_plural = 'Teacher Attendance'
         unique_together = ('teacher', 'date')
+        indexes = [
+            models.Index(fields=['tenant', 'date']),
+            models.Index(fields=['tenant', 'teacher', 'date']),
+            models.Index(fields=['tenant', 'status', 'date']),
+        ]
 
     def __str__(self):
         return f'{self.teacher} - {self.date} - {self.status}'
@@ -134,6 +139,10 @@ class LeaveRequest(AbstractTenantModel, AbstractTimeStampedModel):
         ordering = ['-created_at']
         verbose_name = 'Leave Request'
         verbose_name_plural = 'Leave Requests'
+        indexes = [
+            models.Index(fields=['tenant', 'status', 'created_at']),
+            models.Index(fields=['tenant', 'teacher', 'created_at']),
+        ]
 
     def __str__(self):
         return f'{self.teacher} - {self.get_leave_type_display()} ({self.status})'

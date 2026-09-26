@@ -116,7 +116,7 @@ A committed **`.env.example`** documents every deployment variable.
 | **L** | ⚪ Low | `subscription/signals.py` is empty and never registered |
 | **N** | ⚪ Low | `flow.md` documents middleware (`JWTAuthenticationMiddleware`, `TenantMiddleware`) that does not exist |
 | **P** | ⚪ Low | Working tree holds an uncommitted layout migration (old flat apps deleted, `apps/`+`config/` untracked) |
-| **Q** | ⚪ Medium | No pagination — list endpoints return entire tables. Deliberately deferred: it is a breaking API change (lists become `{count, results}`), touching every list endpoint, ~30 test assertions, and the frontend `use-crud` hook — it deserves its own focused change with the frontend updated in the same commit |
+| **Q** | ✅ Fixed | Pagination is enabled globally with `StandardResultsSetPagination`; frontend `useList` unwraps `{results}` so screens still receive arrays |
 
 ---
 
@@ -226,11 +226,11 @@ wrapped in a transaction.
 
 - `to_representation()` now renders the created `(tenant, admin_user)` pair as a nested payload.
 - `create()` is wrapped in `@transaction.atomic` - a failure rolls everything back.
-- Uniqueness is validated up-front (`tenant_name`, `org_code`, `admin_username`, `admin_email`,
-  all case-insensitive), so duplicate submissions are clean `400`s, never half-committed writes.
+- Uniqueness is validated up-front (`tenant_name`, `org_code`, `slug`, `admin_email` within the new tenant context,
+  all case-insensitive where applicable), so duplicate submissions are clean `400`s, never half-committed writes.
 
 **Regression coverage:** `apps/user_account/tests.py::TenantOnboardingTests` - happy path (tenant +
-admin + membership created, response describes them), duplicate org code / tenant name / username
+admin + membership created, response describes them), duplicate org code / tenant name / admin email
 -> `400` with nothing persisted, and a tenant admin is `403`-ed from the endpoint.
 
 ---
@@ -327,19 +327,18 @@ would reconcile the doc with the code and fix E.
 and `config/` directories are untracked (`??`). Nothing is lost, but the working tree does not
 match any commit. Commit the restructure to keep history usable.
 
-**Q. No pagination.** No `DEFAULT_PAGINATION_CLASS` is set, so `/api/fees/invoices/`,
-`/api/students/attendance/` and friends return the whole table. This will not survive a real
-school.
+**Q. Pagination.** Fixed: `REST_FRAMEWORK` now uses `utils.paginations.StandardResultsSetPagination`
+(page size 20, client `page_size` capped at 100). The frontend `useList` accepts both paginated
+responses and legacy arrays, so existing screens continue to render arrays while the API avoids
+returning entire large tables.
 
 ### Suggested order of work (remaining)
 
 | Priority | Item | Why next |
 |---|---|---|
 | 1 | **S** — generate a real `SECRET_KEY` in `.env` | The last `check --deploy` warning; required before any real deployment |
-| 2 | **Q** — pagination (with the frontend updated in the same change) | A real school will have thousands of students/invoices |
-| 3 | **M** — per-tenant role checks | Correctness for multi-school users; unlocks the `accountant` role |
-| 4 | **P** — commit the restructure | History usability |
-| 5 | **L**, **N** — hygiene | Quality, not blockers |
+| 2 | **P** — commit the restructure | History usability |
+| 3 | **L**, **N** — hygiene | Quality, not blockers |
 
 ### How these findings were verified
 
@@ -354,7 +353,7 @@ cd school_saas-backend
 The original audit ran the app against a **throwaway test database** (Postgres
 `test_school_saas`, created/destroyed by the test runner) and logged in as super_admin / admin /
 hod / teacher / student via
-`POST /api/accounts/login/`, probing every endpoint in the tables above. The same scenarios are now
+`POST /api/auth/login/`, probing every endpoint in the tables above. The same scenarios are now
  codified as the permanent test suite in `apps/core/tests.py`, `apps/user_account/tests.py` and
 `apps/academics/tests.py`.
 
