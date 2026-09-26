@@ -73,3 +73,6 @@ logs/
 # data/
 # secrets/
 # credentials.json
+# collected static + user uploads
+staticfiles/
+media/

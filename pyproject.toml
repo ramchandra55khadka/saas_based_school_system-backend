@@ -1,13 +1,20 @@
 [project]
 name = "school-saas"
 version = "0.1.0"
-description = "Add your description here"
+description = "Multi-tenant SaaS School Management System"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "django>=5.2.7",
     "djangorestframework>=3.16.1",
     "djangorestframework-simplejwt>=5.5.1",
+    "django-cors-headers>=4.7.0",
+    "python-decouple>=3.8",
     "loguru>=0.7.3",
     "pyjwt>=2.10.1",
+    "pillow>=11.0.0",
+    "psycopg[binary]>=3.3.6",
+    "python-dotenv>=1.2.3",
+    "gunicorn>=26.2.0",
+    "whitenoise>=6.12.0",
 ]
